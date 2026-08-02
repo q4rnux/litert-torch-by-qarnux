@@ -33,6 +33,7 @@ Examples:
   litert-torch export_hf --model=model.gguf --output_dir=./output
   litert-torch export_hf --model=llama.gguf --output_dir=./litert_output --quantize
   litert-torch export_hf --model=phi3.gguf --output_dir=./out --quantization_recipe=dynamic_wi4_afp32
+  litert-torch export_hf --model=gemma3.gguf --output_dir=./out --backend=cpu
   litert-torch list_architectures
         """,
     )
@@ -84,6 +85,16 @@ Examples:
         ),
     )
     export_parser.add_argument(
+        "--backend",
+        type=str,
+        default="CPU",
+        choices=["CPU", "GPU", "NPU"],
+        help=(
+            "Target backend for the model. Controls the TargetBackend "
+            "metadata in the .litertlm container. (default: CPU)"
+        ),
+    )
+    export_parser.add_argument(
         "--verbose",
         action="store_true",
         default=False,
@@ -123,6 +134,9 @@ def cmd_export_hf(args: argparse.Namespace) -> int:
     quantize = not args.no_quantize
     recipe = args.quantization_recipe
 
+    # Determine backend
+    target_backend = args.backend.upper()
+
     # Check if recipe is a file path
     recipe_path = Path(recipe)
     if recipe_path.exists() and recipe_path.suffix == ".json":
@@ -142,6 +156,7 @@ def cmd_export_hf(args: argparse.Namespace) -> int:
     logger.info("  Output: %s", output_dir)
     logger.info("  Quantize: %s", quantize)
     logger.info("  Recipe: %s", recipe_name)
+    logger.info("  Backend: %s", target_backend)
 
     # Run the pipeline
     orchestrator = OrchestratorAgent(
@@ -149,6 +164,7 @@ def cmd_export_hf(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         quantize=quantize,
         quantization_recipe=recipe_name,
+        target_backend=target_backend,
     )
 
     try:

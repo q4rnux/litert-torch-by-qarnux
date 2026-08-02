@@ -11,7 +11,7 @@ For more information, see the README at:
 https://github.com/qarnux/litert-torch-by-qarnux
 """
 
-__version__ = "0.3.0"
+__version__ = "1.0.0"
 __author__ = "qarnux"
 __license__ = "Apache-2.0"
 

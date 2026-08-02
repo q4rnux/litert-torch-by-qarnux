@@ -5,6 +5,16 @@ The OrchestratorAgent is the central coordinator of the GGUF-to-LiteRT-LM
 conversion pipeline. It instantiates and manages all specialized agents,
 passes data between them via AgentMessages, handles error propagation,
 and provides progress reporting to the user.
+
+The pipeline consists of 8 agents:
+1. ParserAgent: Parse GGUF file and extract metadata
+2. DequantizationAgent: Dequantize tensor weights
+3. ModelAuthoringAgent: Build PyTorch model and load weights
+4. TokenizerAgent: Extract and convert tokenizer
+5. MetadataAgent: Generate LLM metadata proto (start/stop tokens, prompt
+   templates, sampler params, model type, system metadata)
+6. ConversionAgent: Convert PyTorch model to TFLite
+7. PackagingAgent: Build .litertlm container
 """
 
 from __future__ import annotations
@@ -18,8 +28,9 @@ from litert_torch_qarnux.orchestrator.base_agent import AgentMessage, AgentStatu
 from litert_torch_qarnux.orchestrator.parser_agent import ParserAgent
 from litert_torch_qarnux.orchestrator.dequantization_agent import DequantizationAgent
 from litert_torch_qarnux.orchestrator.model_authoring_agent import ModelAuthoringAgent
-from litert_torch_qarnux.orchestrator.conversion_agent import ConversionAgent
 from litert_torch_qarnux.orchestrator.tokenizer_agent import TokenizerAgent
+from litert_torch_qarnux.orchestrator.metadata_agent import MetadataAgent
+from litert_torch_qarnux.orchestrator.conversion_agent import ConversionAgent
 from litert_torch_qarnux.orchestrator.packaging_agent import PackagingAgent
 
 logger = logging.getLogger(__name__)
@@ -29,13 +40,14 @@ class OrchestratorAgent:
     """
     Coordinates the complete GGUF-to-LiteRT-LM conversion pipeline.
 
-    The orchestrator manages the sequential execution of seven agents:
+    The orchestrator manages the sequential execution of eight agents:
     1. ParserAgent: Parse GGUF file and extract metadata
     2. DequantizationAgent: Dequantize tensor weights
     3. ModelAuthoringAgent: Build PyTorch model and load weights
     4. TokenizerAgent: Extract and convert tokenizer
-    5. ConversionAgent: Convert PyTorch model to TFLite
-    6. PackagingAgent: Build .litertlm container
+    5. MetadataAgent: Generate LLM metadata proto for runtime acceptance
+    6. ConversionAgent: Convert PyTorch model to TFLite
+    7. PackagingAgent: Build .litertlm container
 
     The orchestrator also provides progress tracking, error handling,
     and logging throughout the pipeline.
@@ -47,6 +59,7 @@ class OrchestratorAgent:
         "Dequantizing weights",
         "Authoring PyTorch model",
         "Converting tokenizer",
+        "Generating LLM metadata",
         "Converting to TFLite",
         "Packaging .litertlm container",
     ]
@@ -57,6 +70,7 @@ class OrchestratorAgent:
         output_dir: str | Path,
         quantize: bool = True,
         quantization_recipe: str = "dynamic_wi8_afp32",
+        target_backend: str = "CPU",
     ):
         """
         Initialize the OrchestratorAgent.
@@ -66,11 +80,13 @@ class OrchestratorAgent:
             output_dir: Directory for output files and intermediate artifacts.
             quantize: Whether to apply quantization during TFLite conversion.
             quantization_recipe: Name of the quantization recipe to use.
+            target_backend: Target backend for the model (CPU, GPU, NPU).
         """
         self.model_path = Path(model_path)
         self.output_dir = Path(output_dir)
         self.quantize = quantize
         self.quantization_recipe = quantization_recipe
+        self.target_backend = target_backend
         self.status = AgentStatus.IDLE
         self.start_time: Optional[float] = None
         self.current_stage = 0
@@ -80,6 +96,11 @@ class OrchestratorAgent:
         self.dequantizer = DequantizationAgent()
         self.model_author = ModelAuthoringAgent()
         self.tokenizer = TokenizerAgent(self.output_dir)
+        self.metadata_agent = MetadataAgent(
+            output_dir=self.output_dir,
+            target_backend=self.target_backend,
+            quantization_recipe=self.quantization_recipe,
+        )
         self.converter = ConversionAgent(
             self.output_dir, self.quantize, self.quantization_recipe
         )
@@ -88,6 +109,7 @@ class OrchestratorAgent:
         )
 
         logger.info("OrchestratorAgent initialized for %s", self.model_path)
+        logger.info("  Target backend: %s", self.target_backend)
 
     def run(self) -> Dict[str, Any]:
         """
@@ -107,6 +129,7 @@ class OrchestratorAgent:
         logger.info("Starting GGUF-to-LiteRT-LM conversion pipeline")
         logger.info("  Input:  %s", self.model_path)
         logger.info("  Output: %s", self.output_dir)
+        logger.info("  Backend: %s", self.target_backend)
         logger.info("=" * 60)
 
         results = {}
@@ -146,7 +169,7 @@ class OrchestratorAgent:
                 p.numel() for p in message.data["model"].parameters()
             )
 
-            # Stage 4: Convert tokenizer (runs in parallel with model)
+            # Stage 4: Convert tokenizer
             self._report_progress()
             tokenizer_message = AgentMessage(
                 source="orchestrator",
@@ -166,14 +189,54 @@ class OrchestratorAgent:
                 )
                 tokenizer_message = AgentMessage(
                     source="tokenizer",
-                    target="packaging",
-                    data={"tokenizer_path": None, "tokenizer_model": "unknown"},
+                    target="metadata",
+                    data={
+                        "tokenizer_path": None,
+                        "tokenizer_model": "unknown",
+                        "special_tokens": {},
+                    },
                 )
 
             # Merge tokenizer data into the main message
             message.data["tokenizer_path"] = tokenizer_message.data.get("tokenizer_path")
+            message.data["tokenizer_model"] = tokenizer_message.data.get("tokenizer_model", "unknown")
+            message.data["special_tokens"] = tokenizer_message.data.get("special_tokens", {})
+            message.data["tokenizer_format"] = tokenizer_message.data.get("tokenizer_format", "spm")
 
-            # Stage 5: Convert to TFLite
+            # Stage 5: Generate LLM metadata (NEW - MetadataAgent)
+            self._report_progress()
+            metadata_message = AgentMessage(
+                source="orchestrator",
+                target="metadata",
+                data={
+                    "metadata": message.data.get("metadata"),
+                    "special_tokens": message.data.get("special_tokens", {}),
+                    "tokenizer_model": message.data.get("tokenizer_model", "unknown"),
+                },
+            )
+            metadata_message = self.metadata_agent.start(metadata_message)
+            if not metadata_message.success:
+                logger.warning(
+                    "MetadataAgent failed (non-fatal, will use defaults): %s",
+                    metadata_message.error_message,
+                )
+                # Create a default metadata message so pipeline continues
+                metadata_message = AgentMessage(
+                    source="metadata",
+                    target="conversion",
+                    data={
+                        "llm_metadata": None,
+                        "generated_uuid": "N/A",
+                        "creation_timestamp": "N/A",
+                    },
+                )
+            else:
+                # Merge metadata agent data into main message
+                message.data["llm_metadata"] = metadata_message.data.get("llm_metadata")
+                message.data["generated_uuid"] = metadata_message.data.get("generated_uuid", "N/A")
+                message.data["creation_timestamp"] = metadata_message.data.get("creation_timestamp", "N/A")
+
+            # Stage 6: Convert to TFLite
             self._report_progress()
             message = self.converter.start(message)
             if not message.success:
@@ -182,7 +245,7 @@ class OrchestratorAgent:
                 )
             results["tflite_path"] = message.data["tflite_path"]
 
-            # Stage 6: Package .litertlm
+            # Stage 7: Package .litertlm
             self._report_progress()
             message = self.packager.start(message)
             if not message.success:
