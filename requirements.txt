@@ -1,0 +1,6 @@
+gguf>=0.6.0
+numpy>=1.24.0
+sentencepiece>=0.2.0
+tqdm>=4.65.0
+rich>=13.0.0
+litert-lm-builder>=0.1.0

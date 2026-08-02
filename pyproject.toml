@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "litert-torch-qarnux"
+version = "0.3.0"
+description = "Convert GGUF models to LiteRT-LM (.litertlm) format using multi-agent orchestration"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "qarnux", email = "qarnux@example.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "gguf>=0.6.0",
+    "numpy>=1.24.0",
+    "sentencepiece>=0.2.0",
+    "tqdm>=4.65.0",
+    "rich>=13.0.0",
+    "litert-lm-builder>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+full = [
+    "torch>=2.1.0",
+    "tflite-runtime>=2.14.0",
+]
+
+[project.scripts]
+litert-torch = "litert_torch_qarnux.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/qarnux/litert-torch-by-qarnux"
+Issues = "https://github.com/qarnux/litert-torch-by-qarnux/issues"
+
+[tool.setuptools.packages.find]
+include = ["litert_torch_qarnux*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
