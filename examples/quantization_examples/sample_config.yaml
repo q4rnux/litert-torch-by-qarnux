@@ -1,0 +1,127 @@
+# =============================================================================
+# Model Quantization Configuration - YAML Example
+# =============================================================================
+# Usage:
+#   litert-quantize quantize --config sample_config.yaml
+#   python -m litert_torch_qarnux.model_quantization quantize --config sample_config.yaml
+# =============================================================================
+
+# Source model
+input_path: "models/Llama-2-7b-chat.gguf"
+source_format: "auto"       # auto-detect from file extension
+
+# Quantization settings
+method: "post_training_static"   # post_training_static | post_training_dynamic | gptq | awq
+output_dtype: "int8"             # int4 | int8 | fp16 | bf16 | fp32
+group_size: 32
+per_channel: true
+symmetric: true
+
+# Output
+output_path: "models/Llama-2-7b-chat-quantized-int8.gguf"
+output_format: "gguf"            # gguf | onnx | pytorch | safetensors
+
+# Calibration (for static quantization)
+calib_data_path: "data/calibration.jsonl"
+calib_samples: 128
+max_seq_len: 2048
+
+# -----------------------------------------------------------------------------
+# Behavior Profile
+# Shapes the quantized model's behavioral tendencies.
+# Values range from -1.0 (suppress) to +1.0 (emphasize).
+# -----------------------------------------------------------------------------
+behavior:
+  categories:
+    coding:
+      name: "coding"
+      emphasis: 0.5
+      description: "Code generation, debugging, and programming assistance"
+    reasoning:
+      name: "reasoning"
+      emphasis: 0.7
+      description: "Logical reasoning and chain-of-thought depth"
+    hallucination:
+      name: "hallucination"
+      emphasis: -0.8
+      description: "Tendency to fabricate information (suppress)"
+    fabricating:
+      name: "fabricating"
+      emphasis: -0.9
+      description: "Inventing facts or citations (suppress)"
+    gaslighting:
+      name: "gaslighting"
+      emphasis: -0.9
+      description: "Contradicting user or denying facts (suppress)"
+    over_reacting:
+      name: "over_reacting"
+      emphasis: -0.5
+      description: "Excessive emotional responses (suppress)"
+    helpfulness:
+      name: "helpfulness"
+      emphasis: 0.6
+      description: "Willingness to assist"
+    conciseness:
+      name: "conciseness"
+      emphasis: 0.4
+      description: "Brevity and to-the-point communication"
+    examples:
+      name: "examples"
+      emphasis: 0.5
+      description: "Providing concrete examples"
+    safety:
+      name: "safety"
+      emphasis: 0.8
+      description: "Refusal of harmful requests"
+    honesty:
+      name: "honesty"
+      emphasis: 0.7
+      description: "Admitting uncertainty"
+    empathy:
+      name: "empathy"
+      emphasis: 0.3
+      description: "Understanding user emotions"
+    creativity:
+      name: "creativity"
+      emphasis: 0.4
+      description: "Original thinking approaches"
+    brainstorming:
+      name: "brainstorming"
+      emphasis: 0.3
+      description: "Creative ideation"
+    detail:
+      name: "detail"
+      emphasis: 0.5
+      description: "Thoroughness of explanations"
+    formatting:
+      name: "formatting"
+      emphasis: 0.4
+      description: "Output formatting quality"
+    humor:
+      name: "humor"
+      emphasis: 0.2
+      description: "Appropriate use of wit"
+    drawing:
+      name: "drawing"
+      emphasis: 0.1
+      description: "Visual description capability"
+
+# -----------------------------------------------------------------------------
+# Template Configuration
+# Embeds chat templates, skill.md, and system prompts into the model.
+# -----------------------------------------------------------------------------
+template:
+  chat_template: "{% for message in messages %}{% if message.role == 'user' %}{{ '<|user|>\n' + message.content + eos_token }}{% elif message.role == 'assistant' %}{{ '<|assistant|>\n' + message.content + eos_token }}{% elif message.role == 'system' %}{{ '<|system|>\n' + message.content + eos_token }}{% endif %}{% endfor %}"
+  system_prompt: "You are a helpful, honest, and harmless AI assistant. You excel at coding, reasoning, and providing well-structured answers."
+  personality: "Professional, patient, and thorough. Prefers structured responses with clear formatting."
+  role: "assistant"
+  # skill_md_path: "custom/skill.md"    # Uncomment to load from file
+  # skill_md_content: ""                  # Or paste content directly
+
+# -----------------------------------------------------------------------------
+# Additional Metadata
+# -----------------------------------------------------------------------------
+metadata:
+  model_version: "1.0.0"
+  quantized_by: "litert-quantize"
+  license: "Apache-2.0"
